@@ -17,6 +17,7 @@ app.use(
     origin: [
       "http://localhost:3000",
       "https://effulgent-pie-600620.netlify.app",
+      "https://learninfive.dev",
     ],
     methods: ["GET", "POST"],
     allowedHeaders: ["Content-Type"],
