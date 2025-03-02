@@ -1,10 +1,10 @@
 {
   "name": "server",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "index.ts",
   "scripts": {
     "build": "npx tsc",
-    "start": "node dist/index.js",
+    "start": "node index.ts",
     "dev": "nodemon index.ts"
   },
   "author": "dlmarques",
