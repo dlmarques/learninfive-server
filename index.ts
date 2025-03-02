@@ -14,7 +14,10 @@ const port = process.env.PORT || 8000;
 
 app.use(
   cors({
-    origin: ["http://localhost:3000"],
+    origin: [
+      "http://localhost:3000",
+      "https://effulgent-pie-600620.netlify.app",
+    ],
     methods: ["GET", "POST"],
     allowedHeaders: ["Content-Type"],
     credentials: true,
