@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Daniel Marques
+// Licensed under the GNU AGPL v3. See LICENSE.
+
 import express, { Application } from "express";
 import dotenv from "dotenv";
 import topicRoutes from "./routes/topics";

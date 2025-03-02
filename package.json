@@ -8,7 +8,7 @@
     "dev": "nodemon index.ts"
   },
   "author": "dlmarques",
-  "license": "ISC",
+  "license": "AGPL-3.0",
   "description": "",
   "dependencies": {
     "cors": "^2.8.5",
