@@ -15,7 +15,7 @@ interface TopicExample {
 interface TopicQuiz {
   question: string;
   answers: TopicQuizAnswers[];
-  rightAnswerId: string;
+  rightAnswer: string;
 }
 
 interface TopicQuizAnswers {
