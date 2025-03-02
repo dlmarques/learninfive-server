@@ -11,20 +11,12 @@ const port = process.env.PORT || 8000;
 
 app.use(
   cors({
-    origin: ["http://localhost:5173"],
+    origin: ["http://localhost:3000"],
     methods: ["GET", "POST"],
     allowedHeaders: ["Content-Type"],
     credentials: true,
   })
 );
-
-app.use((req, res, next) => {
-  const apiKey = req.headers[""];
-  if (!apiKey || apiKey !== process.env.API_KEY) {
-    res.status(403).json({ error: "Forbidden" });
-  }
-  next();
-});
 
 app.use("/topics", topicRoutes);
 

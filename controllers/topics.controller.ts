@@ -39,13 +39,13 @@ export const getTopic = async (req: Request, res: Response) => {
 
   const _result = await result;
 
-  const lastTopic = _result.filter((topic) => {
+  const lastTopic = _result.find((topic) => {
     if (isToday(topic.date)) return topic;
   });
 
   if (lastTopic) {
     res.status(200).send({ success: true, content: lastTopic });
   } else {
-    res.status(500).send({ success: false, content: {} });
+    requestAndSaveNewTopic();
   }
 };
