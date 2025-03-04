@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import topicRoutes from "./routes/topics";
 import { runDB } from "./utils/dbConnect";
 import cors from "cors";
+import { limiter } from "./utils/limiter";
 
 dotenv.config();
 
@@ -20,6 +21,8 @@ app.use(
     credentials: true,
   })
 );
+
+app.use(limiter);
 
 app.use("/topics", topicRoutes);
 
