@@ -5,7 +5,7 @@ export const insertNewUser = async (user: User) => {
   try {
     const database = client.db("users");
 
-    const users = database.collection<User>("users");
+    const users = database.collection<User>("user");
 
     const result = await users.insertOne(user);
 

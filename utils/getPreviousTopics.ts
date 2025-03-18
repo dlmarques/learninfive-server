@@ -14,7 +14,6 @@ export const getPreviousTopics = async () => {
     const previousTopics = _result.map((topic) => {
       return topic.concept;
     });
-    console.log(previousTopics);
     return previousTopics;
   } catch (error) {
     console.error(error);
