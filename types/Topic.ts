@@ -6,8 +6,8 @@ export interface Topic {
   examples: TopicExample[];
   quiz: TopicQuiz;
   date: Date;
-  userId: string;
   public: boolean;
+  userId?: string;
 }
 
 interface TopicExample {
@@ -20,6 +20,7 @@ interface TopicQuiz {
   question: string;
   answers: TopicQuizAnswers[];
   rightAnswer: string;
+  userAnswer?: boolean;
 }
 
 interface TopicQuizAnswers {
