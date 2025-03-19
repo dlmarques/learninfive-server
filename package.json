@@ -20,7 +20,8 @@
     "mongoose": "^8.11.0",
     "node-schedule": "^2.1.1",
     "nodemon": "^3.1.9",
-    "openai": "^4.86.1"
+    "openai": "^4.86.1",
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
