@@ -20,6 +20,7 @@ interface TopicQuiz {
   question: string;
   answers: TopicQuizAnswers[];
   rightAnswer: string;
+  userAnswer?: boolean;
 }
 
 interface TopicQuizAnswers {

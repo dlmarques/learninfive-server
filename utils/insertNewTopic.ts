@@ -17,6 +17,7 @@ export const insertNewPublicTopic = async (newTopic: Topic) => {
 };
 
 export const insertNewUserTopic = async (newTopic: Topic) => {
+  console.log("newTopic", newTopic);
   try {
     const database = client.db("topics");
 
