@@ -171,36 +171,51 @@ const getUserTopic = async (token: string, res: Response) => {
 export const answerQuiz = async (req: Request, res: Response) => {
   const token = extractTokenFromHeaders(req);
 
-  const userId = decode(token)?.sub as string;
-
   const { answer, topicId } = req.body;
+
   const database = client.db("topics");
 
   const topic = database.collection<Topic>("topic");
 
-  const result = await topic.findOne({ id: topicId, userId });
+  if (!token) {
+    const result = await topic.findOne({ id: topicId });
 
-  if (result) {
-    const { quiz } = result;
-    const isCorrect = quiz.rightAnswer === answer;
+    if (result) {
+      const { quiz } = result;
 
-    const insertAnswerToUserResult = await insertAnswerToUser(
-      userId,
-      quiz.id,
-      isCorrect
-    );
-
-    if (insertAnswerToUserResult) {
       res.status(200).send({
         success: true,
         content: "Quiz answered correctly",
-        correct: isCorrect,
+        correct: quiz.rightAnswer === answer,
       });
-    } else {
-      res.status(200).send({
-        success: false,
-        content: "Something went wrong",
-      });
+    }
+  } else {
+    const userId = decode(token)?.sub as string;
+
+    const result = await topic.findOne({ id: topicId, userId });
+
+    if (result) {
+      const { quiz } = result;
+      const isCorrect = quiz.rightAnswer === answer;
+
+      const insertAnswerToUserResult = await insertAnswerToUser(
+        userId,
+        quiz.id,
+        isCorrect
+      );
+
+      if (insertAnswerToUserResult) {
+        res.status(200).send({
+          success: true,
+          content: "Quiz answered correctly",
+          correct: isCorrect,
+        });
+      } else {
+        res.status(200).send({
+          success: false,
+          content: "Something went wrong",
+        });
+      }
     }
   }
 };

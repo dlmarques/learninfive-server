@@ -6,6 +6,14 @@ const openai = new OpenAI({
   apiKey: process.env.OPEN_AI_API_KEY,
 });
 
+const cleanJsonResponse = (response: string): string => {
+  const jsonMatch = response.match(/```json\r?\n?([\s\S]*?)\r?\n?```/);
+  if (jsonMatch) {
+    return jsonMatch[1].trim();
+  }
+  return response.trim();
+};
+
 export const getPublicModelResponse = (previousTopics?: string[]) => {
   let refinedPrompt;
 
@@ -25,7 +33,7 @@ export const getPublicModelResponse = (previousTopics?: string[]) => {
     });
 
     const response = completion.then((result) => {
-      return result.choices[0].message.content;
+      return cleanJsonResponse(result.choices[0].message.content || "");
     });
     return response;
   } catch (error) {
@@ -44,13 +52,13 @@ export const getUserModelResponse = (userDataToModel: UserDataToModel) => {
       topicsToAvoid
         ? ` or has expressed interest in avoiding (${topicsToAvoid})`
         : ""
-    }. The new concept should increase in difficulty from the previous topics, offering a natural progression. Return only a valid JSON object with the following structure: { 'concept': '', 'definition': '', 'realWorldAnalogy': '', 'examples': [{ 'language': '', 'code': '' }], 'quiz': {'question': '', 'answers': [{'id': '', 'content': ''}], 'rightAnswer': '' } }. The explanation must be between 4 and 5 minutes read, and you must provide examples in the following languages: JavaScript, Python, Java, C#, C++, TypeScript, PHP. Do not include any additional text before or after the JSON. Ensure the new concept is a logical continuation of the user’s journey, building progressively from easy to hard.`;
+    }. The new concept should increase in difficulty from the previous topics, offering a natural progression. Return only a valid JSON object with the following structure: { 'concept': '', 'definition': '', 'realWorldAnalogy': '', 'examples': [{ 'language': '', 'code': '' }], 'quiz': {'question': '', 'answers': [{'id': '', 'content': ''}], 'rightAnswer': '' } }. The explanation must be between 4 and 5 minutes read, and you must provide examples in the following languages: JavaScript, Python, Java, C#, C++, TypeScript, PHP. Do not include any additional text before or after the JSON. Ensure the new concept is a logical continuation of the user's journey, building progressively from easy to hard.`;
   } else {
     refinedPrompt = `Explain a programming/computer science concept based on the user's level (${csLevel}), preferences (${preferences}), and goals (${goals}).${
       topicsToAvoid
         ? ` Avoid topics that the user has expressed an interest in avoiding (${topicsToAvoid})`
         : ""
-    }. Return only a valid JSON object with the following structure: { 'concept': '', 'definition': '', 'realWorldAnalogy': '', 'examples': [{ 'language': '', 'code': '' }], 'quiz': {'question': '', 'answers': [{'id': '', 'content': ''}], 'rightAnswer': '' } }. The explanation cannot exceed 5 minutes read. Do not include any additional text before or after the JSON. Ensure that the new concept is unique, builds progressively in difficulty, and is tailored to the user’s learning path.`;
+    }. Return only a valid JSON object with the following structure: { 'concept': '', 'definition': '', 'realWorldAnalogy': '', 'examples': [{ 'language': '', 'code': '' }], 'quiz': {'question': '', 'answers': [{'id': '', 'content': ''}], 'rightAnswer': '' } }. The explanation cannot exceed 5 minutes read. Do not include any additional text before or after the JSON. Ensure that the new concept is unique, builds progressively in difficulty, and is tailored to the user's learning path.`;
   }
 
   try {
@@ -61,7 +69,7 @@ export const getUserModelResponse = (userDataToModel: UserDataToModel) => {
     });
 
     const response = completion.then((result) => {
-      return result.choices[0].message.content;
+      return cleanJsonResponse(result.choices[0].message.content || "");
     });
     return response;
   } catch (error) {
