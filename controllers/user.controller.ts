@@ -9,6 +9,11 @@ import { checkIfUserExists } from "../utils/checkIfUserExists";
 export const checkUserProfile = async (req: Request, res: Response) => {
   const token = extractTokenFromHeaders(req);
 
+  if (!token) {
+    res.status(200).send({ success: false, content: "User not logged in" });
+    return;
+  }
+
   const userId = decode(token)?.sub;
 
   const database = client.db("users");
@@ -56,6 +61,11 @@ export const editProfile = async (req: Request, res: Response) => {
   const token = extractTokenFromHeaders(req);
   const user = req.body as User;
 
+  if (!token) {
+    res.status(200).send({ success: false, content: "User not logged in" });
+    return;
+  }
+
   const userId = decode(token)?.sub;
 
   const database = client.db("users");
@@ -95,6 +105,11 @@ export const editProfile = async (req: Request, res: Response) => {
 
 export const getUserData = async (req: Request, res: Response) => {
   const token = extractTokenFromHeaders(req);
+
+  if (!token) {
+    res.status(200).send({ success: false, content: "User not logged in" });
+    return;
+  }
 
   const userId = decode(token)?.sub;
 
