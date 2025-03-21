@@ -21,6 +21,10 @@ import { UserDataToModel } from "../types/Model";
 import { insertTopicToUserPastTopics } from "../utils/insertTopicToUserPastTopics";
 import { insertAnswerToUser } from "../utils/insertAnswerToUser";
 
+const inProgress = new Set();
+let publicTopicInProgress: Topic | null;
+let usersTopicsInProgress: { [key: string]: Topic } = {};
+
 export const requestAndSaveNewPublicTopic = async () => {
   const pastTopics = await getPreviousPublicTopics();
 
@@ -36,10 +40,11 @@ export const requestAndSaveNewPublicTopic = async () => {
       id: uuidv4(),
     };
 
+    publicTopicInProgress = topic;
+
     const insertPublicTopicResult = await insertNewPublicTopic(topic);
 
     if (insertPublicTopicResult) {
-      console.log("New public topic generated and inserted sucessfully");
       return topic;
     } else {
       throw new Error("Something went wrong on model requisition");
@@ -70,6 +75,8 @@ export const requestAndSaveNewUserTopic = async (
       public: false,
     };
 
+    usersTopicsInProgress[userId] = topic;
+
     const insertUserTopicResult = await insertNewUserTopic(topic);
 
     const insertTopicToUserPastTopicsResult = await insertTopicToUserPastTopics(
@@ -78,7 +85,6 @@ export const requestAndSaveNewUserTopic = async (
     );
 
     if (insertUserTopicResult && insertTopicToUserPastTopicsResult) {
-      console.log("New user topic generated and inserted sucessfully");
       return topic;
     } else {
       throw new Error("Something went wrong on model requisition");
@@ -101,6 +107,15 @@ export const getTopic = async (req: Request, res: Response) => {
 };
 
 const getPublicTopic = async (res: Response) => {
+  if (inProgress.has("public") && publicTopicInProgress) {
+    res.status(200).send({ success: true, content: publicTopicInProgress });
+    inProgress.delete("public");
+    publicTopicInProgress = null;
+    return;
+  } else if (inProgress.has("public")) {
+    res.status(500).send({ success: false, content: "Topic in progress" });
+    return;
+  }
   const database = client.db("topics");
 
   const topic = database.collection<Topic>("topic");
@@ -114,13 +129,30 @@ const getPublicTopic = async (res: Response) => {
   if (lastTopic) {
     res.status(200).send({ success: true, content: lastTopic });
   } else {
-    const topic = await requestAndSaveNewPublicTopic();
-    res.status(200).send({ success: true, content: topic });
+    if (!inProgress.has("public")) {
+      inProgress.add("public");
+      const topic = await requestAndSaveNewPublicTopic();
+      res.status(200).send({ success: true, content: topic });
+      inProgress.delete("public");
+      publicTopicInProgress = null;
+    }
   }
 };
 
 const getUserTopic = async (token: string, res: Response) => {
   const userId = decode(token)?.sub as string;
+
+  if (inProgress.has(userId) && usersTopicsInProgress[userId]) {
+    res
+      .status(200)
+      .send({ success: true, content: usersTopicsInProgress[userId] });
+    inProgress.delete(userId);
+    delete usersTopicsInProgress[userId];
+    return;
+  } else if (inProgress.has(userId)) {
+    res.status(500).send({ success: false, content: "Topic in progress" });
+    return;
+  }
 
   const database = client.db("topics");
 
@@ -149,21 +181,24 @@ const getUserTopic = async (token: string, res: Response) => {
       res.status(200).send({ success: true, content: lastTopic });
     }
   } else {
-    if (userData) {
-      const pastTopics = extractPastTopics(userData);
-
-      const topic = await requestAndSaveNewUserTopic(
-        {
-          pastTopics,
-          csLevel: userData.csLevel,
-          preferences: userData.preferences,
-          topicsToAvoid: userData.topicsToAvoid,
-          goals: userData.goals,
-        },
-        userId
-      );
-
-      res.status(200).send({ success: true, content: topic });
+    if (!inProgress.has(userId)) {
+      if (userData) {
+        inProgress.add(userId);
+        const pastTopics = extractPastTopics(userData);
+        const topic = await requestAndSaveNewUserTopic(
+          {
+            pastTopics,
+            csLevel: userData.csLevel,
+            preferences: userData.preferences,
+            topicsToAvoid: userData.topicsToAvoid,
+            goals: userData.goals,
+          },
+          userId
+        );
+        res.status(200).send({ success: true, content: topic });
+        inProgress.delete(userId);
+        delete usersTopicsInProgress[userId];
+      }
     }
   }
 };
