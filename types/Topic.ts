@@ -1,10 +1,13 @@
 export interface Topic {
+  id: string;
   concept: string;
   definition: string;
   realWorldAnalogy: string;
   examples: TopicExample[];
   quiz: TopicQuiz;
   date: Date;
+  public: boolean;
+  userId?: string;
 }
 
 interface TopicExample {
@@ -13,9 +16,11 @@ interface TopicExample {
 }
 
 interface TopicQuiz {
+  id: string;
   question: string;
   answers: TopicQuizAnswers[];
   rightAnswer: string;
+  userAnswer?: boolean;
 }
 
 interface TopicQuizAnswers {

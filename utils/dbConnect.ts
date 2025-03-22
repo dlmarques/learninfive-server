@@ -8,6 +8,11 @@ export const client = new MongoClient(uri, {
     strict: true,
     deprecationErrors: true,
   },
+  maxPoolSize: 10,
+  minPoolSize: 5,
+  maxIdleTimeMS: 60000,
+  connectTimeoutMS: 5000,
+  socketTimeoutMS: 45000,
 });
 
 export async function runDB() {
