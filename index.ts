@@ -10,6 +10,7 @@ import cors from "cors";
 import { limiter } from "./utils/limiter";
 import helmet from "helmet";
 
+
 dotenv.config();
 
 const app: Application = express();
@@ -70,6 +71,8 @@ if (process.env.NODE_ENV === "production") {
     })
   );
 }
+
+app.use(limiter);
 
 app.use("/topics", topicRoutes);
 app.use("/users", usersRoutes);
