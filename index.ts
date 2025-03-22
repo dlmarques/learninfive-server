@@ -4,6 +4,7 @@
 import express, { Application } from "express";
 import dotenv from "dotenv";
 import topicRoutes from "./routes/topics";
+import usersRoutes from "./routes/user";
 import { runDB } from "./utils/dbConnect";
 import cors from "cors";
 import { limiter } from "./utils/limiter";
@@ -13,22 +14,12 @@ dotenv.config();
 const app: Application = express();
 const port = process.env.PORT || 8000;
 
-app.use(
-  cors({
-    origin: [
-      "http://localhost:3000",
-      "https://effulgent-pie-600620.netlify.app",
-      "https://learninfive.dev",
-    ],
-    methods: ["GET", "POST"],
-    allowedHeaders: ["Content-Type"],
-    credentials: true,
-  })
-);
+app.use(cors());
 
 app.use(limiter);
 
 app.use("/topics", topicRoutes);
+app.use("/users", usersRoutes);
 
 runDB().catch(console.dir);
 
