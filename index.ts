@@ -20,8 +20,8 @@ app.use(
   cors({
     origin: [
       "http://localhost:3000",
-      "https://learninfive.dev",
-      "https://www.learninfive.dev",
+      "https://learninfive.com",
+      "https://www.learninfive.com",
     ],
     credentials: true,
   })
