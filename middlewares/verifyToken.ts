@@ -21,8 +21,8 @@ export const verifyTokenMiddleware: RequestHandler = async (
       jwtKey: process.env.CLERK_JWT_KEY,
       authorizedParties: [
         "http://localhost:3000",
-        "https://www.learninfive.dev",
-        "https://learninfive.dev",
+        "https://www.learninfive.com",
+        "https://learninfive.com",
       ],
     });
 
