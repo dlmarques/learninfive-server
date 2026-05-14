@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "main": "index.ts",
   "scripts": {
-  "build": "npx tsc",
-  "start": "tsx index.js",
+  "build": "tsc",
+  "start": "node dist/index.js",
   "dev": "tsx index.ts"
   },
   "author": "dlmarques",
@@ -24,6 +24,7 @@
     "node-schedule": "^2.1.1",
     "nodemon": "^3.1.9",
     "openai": "^4.86.1",
+    "typescript": "^5.8.2",
     "uuid": "^11.1.0"
   },
   "devDependencies": {
@@ -32,7 +33,6 @@
     "@types/jsonwebtoken": "^9.0.9",
     "@types/node-schedule": "^2.1.7",
     "ts-node-dev": "^2.0.0",
-    "tsx": "^4.19.3",
-    "typescript": "^5.8.2"
+    "tsx": "^4.19.3"
   }
 }
