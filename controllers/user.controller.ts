@@ -81,7 +81,7 @@ export const editProfile = async (req: Request, res: Response) => {
         ...userResult,
         csLevel: user.csLevel,
         goals: user.goals,
-        preferences: user.goals,
+        preferences: user.preferences,
         topicsToAvoid: user.topicsToAvoid,
       },
     }
