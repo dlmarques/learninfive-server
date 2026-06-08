@@ -80,5 +80,5 @@ app.use("/users", usersRoutes);
 runDB().catch(console.dir);
 
 app.listen(port, () => {
-  console.log(`Server is Fire at https://localhost:${port}`);
+  console.log(`Server is listening at http://localhost:${port}`);
 });

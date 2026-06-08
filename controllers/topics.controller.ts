@@ -35,6 +35,10 @@ export const requestAndSaveNewPublicTopic = async () => {
 
     const topic: Topic = {
       ...parsedResponse,
+      quiz: {
+        ...parsedResponse.quiz,
+        id: uuidv4(),
+      },
       date: new Date(),
       public: true,
       id: uuidv4(),
