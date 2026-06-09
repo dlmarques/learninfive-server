@@ -1,5 +1,6 @@
 import { MongoClient } from "mongodb";
 import { MongoMemoryServer } from "mongodb-memory-server";
+import type { Request, Response } from "express";
 import {
   afterAll,
   afterEach,
@@ -15,6 +16,14 @@ import { InvalidModelTopicResponseError } from "../utils/parseModelTopicResponse
 vi.mock("../controllers/model.controller", () => ({
   getPublicModelResponse: vi.fn(),
   getUserModelResponse: vi.fn(),
+}));
+
+vi.mock("@clerk/backend", () => ({
+  verifyToken: vi.fn(),
+}));
+
+vi.mock("jsonwebtoken", () => ({
+  decode: vi.fn(),
 }));
 
 const topicJson = (concept: string) =>
@@ -42,11 +51,41 @@ const createDeferred = <T>() => {
 const wait = (milliseconds: number) =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-describe("topic generation coordination", () => {
+const createRequest = ({
+  body = {},
+  authorization,
+}: {
+  body?: Record<string, unknown>;
+  authorization?: string;
+} = {}) =>
+  ({
+    body,
+    headers: authorization ? { authorization } : {},
+  }) as Request;
+
+const createResponse = () => {
+  const response = {} as Response & {
+    status: ReturnType<typeof vi.fn>;
+    send: ReturnType<typeof vi.fn>;
+    json: ReturnType<typeof vi.fn>;
+  };
+
+  response.status = vi.fn().mockReturnValue(response);
+  response.send = vi.fn().mockReturnValue(response);
+  response.json = vi.fn().mockReturnValue(response);
+
+  return response;
+};
+
+describe("backend topic, profile, auth, and quiz flows", () => {
   let mongoServer: MongoMemoryServer;
   let client: MongoClient;
+  let clerkBackend: typeof import("@clerk/backend");
+  let jsonwebtoken: typeof import("jsonwebtoken");
   let modelController: typeof import("../controllers/model.controller");
   let topicController: typeof import("../controllers/topics.controller");
+  let userController: typeof import("../controllers/user.controller");
+  let verifyTokenMiddlewareModule: typeof import("../middlewares/verifyToken");
   let topicGenerationLock: typeof import("../utils/topicGenerationLock");
   let topicRepository: typeof import("../utils/topicRepository");
   let topicDayKey: typeof import("../utils/topicDayKey");
@@ -100,6 +139,31 @@ describe("topic generation coordination", () => {
     public: true,
   });
 
+  const buildUserTopic = (dayKey: string, userId: string): Topic => ({
+    id: "00000000-0000-4000-8000-000000000001",
+    concept: "Persisted Quiz Topic",
+    definition: "Definition",
+    realWorldAnalogy: "Analogy",
+    examples: [{ language: "JavaScript", code: "console.log('test')" }],
+    quiz: {
+      id: "quiz-1",
+      question: "Question?",
+      answers: [
+        { id: "answer-1", content: "Answer 1" },
+        { id: "answer-2", content: "Answer 2" },
+      ],
+      rightAnswer: "answer-1",
+    },
+    date: new Date(`${dayKey}T12:00:00.000Z`),
+    dayKey,
+    public: false,
+    userId,
+  });
+
+  const mockDecodedTokenSubject = (userId: string) => {
+    vi.mocked(jsonwebtoken.decode).mockReturnValue({ sub: userId } as never);
+  };
+
   beforeAll(async () => {
     process.env.NODE_ENV = "test";
     process.env.TOPIC_GENERATION_LOCK_TTL_MS = "60000";
@@ -120,8 +184,12 @@ describe("topic generation coordination", () => {
     await dbConnect.runDB();
     await topicStorageMaintenance.ensureTopicStorage();
 
+    clerkBackend = await import("@clerk/backend");
+    jsonwebtoken = await import("jsonwebtoken");
     modelController = await import("../controllers/model.controller");
     topicController = await import("../controllers/topics.controller");
+    userController = await import("../controllers/user.controller");
+    verifyTokenMiddlewareModule = await import("../middlewares/verifyToken");
     topicGenerationLock = await import("../utils/topicGenerationLock");
     topicRepository = await import("../utils/topicRepository");
     topicDayKey = await import("../utils/topicDayKey");
@@ -141,6 +209,31 @@ describe("topic generation coordination", () => {
     expect(topicDayKey.getUtcDayKey(new Date("2024-03-01T23:30:00.000Z"))).toBe(
       "2024-03-01"
     );
+  });
+
+  it("returns an existing public topic without generating another one", async () => {
+    const dayKey = "2024-03-10";
+    const existingTopic = buildPublicTopic(dayKey, "existing-public");
+
+    await client.db("topics").collection("topic").insertOne(existingTopic);
+
+    await expect(
+      topicController.getOrCreatePublicTopicForDay(dayKey)
+    ).resolves.toMatchObject({
+      id: "existing-public",
+      concept: "Concept existing-public",
+      dayKey,
+      public: true,
+    });
+
+    expect(modelController.getPublicModelResponse).not.toHaveBeenCalled();
+
+    const persistedCount = await client
+      .db("topics")
+      .collection("topic")
+      .countDocuments({ public: true, dayKey });
+
+    expect(persistedCount).toBe(1);
   });
 
   it("prevents concurrent public generation from calling the model twice", async () => {
@@ -227,6 +320,44 @@ describe("topic generation coordination", () => {
       .countDocuments({ public: false, userId, dayKey });
 
     expect(persistedCount).toBe(1);
+  });
+
+  it("records generated user topics in the user's past topics", async () => {
+    const dayKey = "2024-03-11";
+    const userId = "user-1";
+    const userModelData = {
+      pastTopics: [],
+      csLevel: "beginner",
+      preferences: "TypeScript",
+      goals: "learn backend systems",
+      topicsToAvoid: "hardware",
+    };
+
+    await insertUser(userId);
+
+    vi.mocked(modelController.getUserModelResponse).mockResolvedValue(
+      topicJson("User Past Topic")
+    );
+
+    const topic = await topicController.getOrCreateUserTopicForDay(
+      userModelData,
+      userId,
+      dayKey
+    );
+
+    const user = await client.db("users").collection("user").findOne({
+      userId,
+    });
+
+    expect(topic).toMatchObject({
+      concept: "User Past Topic",
+      dayKey,
+      public: false,
+      userId,
+    });
+    expect(user?.pastTopics).toEqual([
+      { id: topic.id, concept: "User Past Topic" },
+    ]);
   });
 
   it("allows different users to generate independently for the same day", async () => {
@@ -417,5 +548,236 @@ describe("topic generation coordination", () => {
     });
 
     expect(modelController.getPublicModelResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it("creates a profile and rejects duplicate profile creation", async () => {
+    const profile = {
+      userId: "profile-user",
+      csLevel: "beginner",
+      goals: "learn TypeScript",
+      preferences: "short examples",
+      topicsToAvoid: "assembly",
+    };
+
+    const createResponseMock = createResponse();
+
+    await userController.createUserProfile(
+      createRequest({ body: profile }),
+      createResponseMock
+    );
+
+    expect(createResponseMock.status).toHaveBeenCalledWith(200);
+    expect(createResponseMock.send).toHaveBeenCalledWith({
+      success: true,
+      content: "User created.",
+    });
+
+    const persistedUser = await client.db("users").collection("user").findOne({
+      userId: profile.userId,
+    });
+
+    expect(persistedUser).toMatchObject(profile);
+
+    const duplicateResponseMock = createResponse();
+
+    await userController.createUserProfile(
+      createRequest({ body: profile }),
+      duplicateResponseMock
+    );
+
+    expect(duplicateResponseMock.status).toHaveBeenCalledWith(200);
+    expect(duplicateResponseMock.send).toHaveBeenCalledWith({
+      success: false,
+      content: "User already exists.",
+    });
+
+    const persistedCount = await client
+      .db("users")
+      .collection("user")
+      .countDocuments({ userId: profile.userId });
+
+    expect(persistedCount).toBe(1);
+  });
+
+  it("edits an authenticated profile without clearing quiz history", async () => {
+    const userId = "profile-user";
+
+    await client.db("users").collection("user").insertOne({
+      userId,
+      csLevel: "beginner",
+      goals: "learn TypeScript",
+      preferences: "short examples",
+      topicsToAvoid: "assembly",
+      answeredQuizzes: [{ id: "quiz-1", correctness: true }],
+    });
+
+    mockDecodedTokenSubject(userId);
+
+    const response = createResponse();
+
+    await userController.editProfile(
+      createRequest({
+        authorization: "Bearer valid-token",
+        body: {
+          userId,
+          csLevel: "advanced",
+          goals: "design distributed systems",
+          preferences: "deep dives",
+          topicsToAvoid: "CSS",
+        },
+      }),
+      response
+    );
+
+    expect(response.status).toHaveBeenCalledWith(200);
+    expect(response.send).toHaveBeenCalledWith({
+      success: true,
+      content: "User edited successfully",
+      edited: true,
+    });
+
+    const persistedUser = await client.db("users").collection("user").findOne({
+      userId,
+    });
+
+    expect(persistedUser).toMatchObject({
+      userId,
+      csLevel: "advanced",
+      goals: "design distributed systems",
+      preferences: "deep dives",
+      topicsToAvoid: "CSS",
+      answeredQuizzes: [{ id: "quiz-1", correctness: true }],
+    });
+  });
+
+  it("rejects protected requests when the bearer token is missing", async () => {
+    const response = createResponse();
+    const next = vi.fn();
+
+    await verifyTokenMiddlewareModule.verifyTokenMiddleware(
+      createRequest(),
+      response,
+      next
+    );
+
+    expect(response.status).toHaveBeenCalledWith(401);
+    expect(response.json).toHaveBeenCalledWith({
+      error: "Token not found. User must sign in.",
+    });
+    expect(clerkBackend.verifyToken).not.toHaveBeenCalled();
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("passes protected requests after Clerk verifies the bearer token", async () => {
+    vi.mocked(clerkBackend.verifyToken).mockResolvedValue({
+      sub: "profile-user",
+    } as never);
+
+    const response = createResponse();
+    const next = vi.fn();
+
+    await verifyTokenMiddlewareModule.verifyTokenMiddleware(
+      createRequest({ authorization: "Bearer valid-token" }),
+      response,
+      next
+    );
+
+    expect(clerkBackend.verifyToken).toHaveBeenCalledWith(
+      "valid-token",
+      expect.objectContaining({
+        jwtKey: process.env.CLERK_JWT_KEY,
+        authorizedParties: expect.arrayContaining([
+          "http://localhost:3000",
+          "https://www.learninfive.com",
+          "https://learninfive.com",
+        ]),
+      })
+    );
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(response.status).not.toHaveBeenCalled();
+  });
+
+  it("rejects protected requests when Clerk cannot verify the bearer token", async () => {
+    vi.mocked(clerkBackend.verifyToken).mockRejectedValue(
+      new Error("invalid token")
+    );
+
+    const response = createResponse();
+    const next = vi.fn();
+
+    await verifyTokenMiddlewareModule.verifyTokenMiddleware(
+      createRequest({ authorization: "Bearer invalid-token" }),
+      response,
+      next
+    );
+
+    expect(response.status).toHaveBeenCalledWith(401);
+    expect(response.json).toHaveBeenCalledWith({
+      error: "Token not verified.",
+    });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("persists authenticated quiz answers and replays them with the daily topic", async () => {
+    const userId = "quiz-user";
+    const dayKey = topicDayKey.getUtcDayKey();
+    const topic = buildUserTopic(dayKey, userId);
+
+    await client.db("users").collection("user").insertOne({
+      userId,
+      csLevel: "beginner",
+      goals: "learn TypeScript",
+      preferences: "short examples",
+    });
+    await client.db("topics").collection("topic").insertOne(topic);
+
+    mockDecodedTokenSubject(userId);
+
+    const answerResponse = createResponse();
+
+    await topicController.answerQuiz(
+      createRequest({
+        authorization: "Bearer valid-token",
+        body: {
+          topicId: topic.id,
+          answer: "answer-1",
+        },
+      }),
+      answerResponse
+    );
+
+    expect(answerResponse.status).toHaveBeenCalledWith(200);
+    expect(answerResponse.send).toHaveBeenCalledWith({
+      success: true,
+      content: "Quiz answered correctly",
+      correct: true,
+    });
+
+    const persistedUser = await client.db("users").collection("user").findOne({
+      userId,
+    });
+
+    expect(persistedUser?.answeredQuizzes).toEqual([
+      { id: "quiz-1", correctness: true },
+    ]);
+
+    const topicResponse = createResponse();
+
+    await topicController.getTopic(
+      createRequest({ authorization: "Bearer valid-token" }),
+      topicResponse
+    );
+
+    expect(topicResponse.status).toHaveBeenCalledWith(200);
+    expect(topicResponse.send).toHaveBeenCalledWith({
+      success: true,
+      content: expect.objectContaining({
+        id: topic.id,
+        quiz: expect.objectContaining({
+          id: "quiz-1",
+          userAnswer: true,
+        }),
+      }),
+    });
   });
 });
