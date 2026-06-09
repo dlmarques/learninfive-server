@@ -10,6 +10,7 @@ import {
   vi,
 } from "vitest";
 import { Topic } from "../types/Topic";
+import { InvalidModelTopicResponseError } from "../utils/parseModelTopicResponse";
 
 vi.mock("../controllers/model.controller", () => ({
   getPublicModelResponse: vi.fn(),
@@ -312,6 +313,62 @@ describe("topic generation coordination", () => {
     });
 
     expect(modelController.getPublicModelResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects malformed public model JSON before inserting a topic", async () => {
+    const dayKey = "2024-03-08";
+
+    vi.mocked(modelController.getPublicModelResponse).mockResolvedValue(
+      "{not-json"
+    );
+
+    await expect(
+      topicController.getOrCreatePublicTopicForDay(dayKey)
+    ).rejects.toBeInstanceOf(InvalidModelTopicResponseError);
+
+    const persistedCount = await client
+      .db("topics")
+      .collection("topic")
+      .countDocuments({ public: true, dayKey });
+
+    expect(persistedCount).toBe(0);
+  });
+
+  it("rejects schema-invalid user model JSON before inserting a topic", async () => {
+    const dayKey = "2024-03-09";
+    const userId = "user-1";
+    const userModelData = {
+      pastTopics: [],
+      csLevel: "beginner",
+      preferences: "TypeScript",
+      goals: "learn backend systems",
+    };
+
+    await insertUser(userId);
+
+    vi.mocked(modelController.getUserModelResponse).mockResolvedValue(
+      JSON.stringify({
+        concept: "Invalid User Topic",
+        definition: "Definition",
+        realWorldAnalogy: "Analogy",
+        examples: [{ language: "JavaScript", code: "console.log('test')" }],
+        quiz: {
+          question: "Question?",
+          answers: [{ id: "answer-1", content: "Answer 1" }],
+        },
+      })
+    );
+
+    await expect(
+      topicController.getOrCreateUserTopicForDay(userModelData, userId, dayKey)
+    ).rejects.toBeInstanceOf(InvalidModelTopicResponseError);
+
+    const persistedCount = await client
+      .db("topics")
+      .collection("topic")
+      .countDocuments({ public: false, userId, dayKey });
+
+    expect(persistedCount).toBe(0);
   });
 
   it("returns the persisted winner when a duplicate insert races", async () => {

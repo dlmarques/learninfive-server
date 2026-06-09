@@ -25,6 +25,7 @@ import {
   TopicGenerationInProgressError,
   withTopicGenerationLock,
 } from "../utils/topicGenerationLock";
+import { parseModelTopicResponse } from "../utils/parseModelTopicResponse";
 
 const TOPIC_IN_PROGRESS = "Topic in progress";
 
@@ -34,7 +35,7 @@ const createPublicTopic = async (dayKey: string) => {
   const modelResponse = await getPublicModelResponse(pastTopics);
 
   if (modelResponse) {
-    const parsedResponse = JSON.parse(modelResponse);
+    const parsedResponse = parseModelTopicResponse(modelResponse);
 
     const topic: Topic = {
       ...parsedResponse,
@@ -66,7 +67,7 @@ const createUserTopic = async (
   const modelResponse = await getUserModelResponse(userDataToModel);
 
   if (modelResponse) {
-    const parsedResponse = JSON.parse(modelResponse);
+    const parsedResponse = parseModelTopicResponse(modelResponse);
 
     const topic: Topic = {
       ...parsedResponse,
