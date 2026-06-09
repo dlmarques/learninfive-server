@@ -10,21 +10,18 @@ export const insertTopicToUserPastTopics = async (
 
   const users = database.collection<User>("user");
 
-  const userResult = await users.findOne({ userId });
-
-  const pastTopics = userResult?.pastTopics ? [...userResult.pastTopics] : [];
-
   const userUpdateResult = await users.updateOne(
     { userId },
     {
-      $set: {
-        ...userResult,
-        pastTopics: [...pastTopics, { id: topic.id, concept: topic.concept }],
+      $addToSet: {
+        pastTopics: { id: topic.id, concept: topic.concept },
       },
     }
   );
-  if (userUpdateResult.modifiedCount > 0) {
+
+  if (userUpdateResult.matchedCount > 0) {
     return true;
   }
+
   return false;
 };

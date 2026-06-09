@@ -6,6 +6,7 @@ export interface Topic {
   examples: TopicExample[];
   quiz: TopicQuiz;
   date: Date;
+  dayKey: string;
   public: boolean;
   userId?: string;
 }

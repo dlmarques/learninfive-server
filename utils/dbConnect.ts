@@ -1,6 +1,8 @@
 import { MongoClient, ServerApiVersion } from "mongodb";
 require("dotenv").config();
-const uri = `mongodb+srv://${process.env.MONGO_DB_USER}:${process.env.MONGO_DB_PASSWORD}@cluster0.sefgk.mongodb.net/topics?retryWrites=true&w=majority&appName=Cluster0`;
+const uri =
+  process.env.MONGO_DB_URI ??
+  `mongodb+srv://${process.env.MONGO_DB_USER}:${process.env.MONGO_DB_PASSWORD}@cluster0.sefgk.mongodb.net/topics?retryWrites=true&w=majority&appName=Cluster0`;
 
 export const client = new MongoClient(uri, {
   serverApi: {
@@ -25,5 +27,6 @@ export async function runDB() {
     );
   } catch (err) {
     console.error(err);
+    throw err;
   }
 }
