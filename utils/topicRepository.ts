@@ -1,16 +1,6 @@
 import { Topic } from "../types/Topic";
 import { client } from "./dbConnect";
-
-export const TOPIC_DUPLICATE_KEY_CODE = 11000;
-
-export const isDuplicateKeyError = (error: unknown) => {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === TOPIC_DUPLICATE_KEY_CODE
-  );
-};
+import { isDuplicateKeyError } from "./mongoErrors";
 
 const getTopicCollection = () => {
   const database = client.db("topics");

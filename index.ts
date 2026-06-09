@@ -10,7 +10,7 @@ import cors from "cors";
 import { limiter } from "./utils/limiter";
 import helmet from "helmet";
 import { ensureTopicStorage } from "./utils/topicStorageMaintenance";
-
+import { ensureUserStorage } from "./utils/userStorageMaintenance";
 
 dotenv.config();
 
@@ -23,6 +23,8 @@ app.use(
       "http://localhost:3000",
       "https://learninfive.dev",
       "https://www.learninfive.dev",
+      "https://learninfive.com",
+      "https://www.learninfive.com"
     ],
     credentials: true,
   })
@@ -81,6 +83,7 @@ app.use("/users", usersRoutes);
 const startServer = async () => {
   await runDB();
   await ensureTopicStorage();
+  await ensureUserStorage();
 
   app.listen(port, () => {
     console.log(`Server is listening at http://localhost:${port}`);

@@ -179,10 +179,14 @@ describe("backend topic, profile, auth, and quiz flows", () => {
     const topicStorageMaintenance = await import(
       "../utils/topicStorageMaintenance"
     );
+    const userStorageMaintenance = await import(
+      "../utils/userStorageMaintenance"
+    );
 
     client = dbConnect.client;
     await dbConnect.runDB();
     await topicStorageMaintenance.ensureTopicStorage();
+    await userStorageMaintenance.ensureUserStorage();
 
     clerkBackend = await import("@clerk/backend");
     jsonwebtoken = await import("jsonwebtoken");
@@ -209,6 +213,28 @@ describe("backend topic, profile, auth, and quiz flows", () => {
     expect(topicDayKey.getUtcDayKey(new Date("2024-03-01T23:30:00.000Z"))).toBe(
       "2024-03-01"
     );
+  });
+
+  it("enforces unique topic ids at the database layer", async () => {
+    await client
+      .db("topics")
+      .collection("topic")
+      .insertOne(buildPublicTopic("2024-04-01", "shared-topic-id"));
+
+    await expect(
+      client
+        .db("topics")
+        .collection("topic")
+        .insertOne(buildPublicTopic("2024-04-02", "shared-topic-id"))
+    ).rejects.toMatchObject({ code: 11000 });
+  });
+
+  it("enforces unique user ids at the database layer", async () => {
+    await insertUser("unique-profile-user");
+
+    await expect(insertUser("unique-profile-user")).rejects.toMatchObject({
+      code: 11000,
+    });
   });
 
   it("returns an existing public topic without generating another one", async () => {
@@ -550,7 +576,7 @@ describe("backend topic, profile, auth, and quiz flows", () => {
     expect(modelController.getPublicModelResponse).toHaveBeenCalledTimes(1);
   });
 
-  it("creates a profile and rejects duplicate profile creation", async () => {
+  it("creates a profile and rejects concurrent duplicate profile creation", async () => {
     const profile = {
       userId: "profile-user",
       csLevel: "beginner",
@@ -559,18 +585,45 @@ describe("backend topic, profile, auth, and quiz flows", () => {
       topicsToAvoid: "assembly",
     };
 
-    const createResponseMock = createResponse();
+    mockDecodedTokenSubject(profile.userId);
 
-    await userController.createUserProfile(
-      createRequest({ body: profile }),
-      createResponseMock
+    const firstResponse = createResponse();
+    const secondResponse = createResponse();
+
+    await Promise.all([
+      userController.createUserProfile(
+        createRequest({
+          authorization: "Bearer valid-token",
+          body: profile,
+        }),
+        firstResponse
+      ),
+      userController.createUserProfile(
+        createRequest({
+          authorization: "Bearer valid-token",
+          body: profile,
+        }),
+        secondResponse
+      ),
+    ]);
+
+    expect(firstResponse.status).toHaveBeenCalledWith(200);
+    expect(secondResponse.status).toHaveBeenCalledWith(200);
+    expect([
+      firstResponse.send.mock.calls[0]?.[0],
+      secondResponse.send.mock.calls[0]?.[0],
+    ]).toEqual(
+      expect.arrayContaining([
+        {
+          success: true,
+          content: "User created.",
+        },
+        {
+          success: false,
+          content: "User already exists.",
+        },
+      ])
     );
-
-    expect(createResponseMock.status).toHaveBeenCalledWith(200);
-    expect(createResponseMock.send).toHaveBeenCalledWith({
-      success: true,
-      content: "User created.",
-    });
 
     const persistedUser = await client.db("users").collection("user").findOne({
       userId: profile.userId,
@@ -578,25 +631,45 @@ describe("backend topic, profile, auth, and quiz flows", () => {
 
     expect(persistedUser).toMatchObject(profile);
 
-    const duplicateResponseMock = createResponse();
-
-    await userController.createUserProfile(
-      createRequest({ body: profile }),
-      duplicateResponseMock
-    );
-
-    expect(duplicateResponseMock.status).toHaveBeenCalledWith(200);
-    expect(duplicateResponseMock.send).toHaveBeenCalledWith({
-      success: false,
-      content: "User already exists.",
-    });
-
     const persistedCount = await client
       .db("users")
       .collection("user")
       .countDocuments({ userId: profile.userId });
 
     expect(persistedCount).toBe(1);
+  });
+
+  it("rejects profile creation when body userId differs from the token subject", async () => {
+    const response = createResponse();
+
+    mockDecodedTokenSubject("authenticated-user");
+
+    await userController.createUserProfile(
+      createRequest({
+        authorization: "Bearer valid-token",
+        body: {
+          userId: "different-user",
+          csLevel: "beginner",
+          goals: "learn TypeScript",
+          preferences: "short examples",
+          topicsToAvoid: "assembly",
+        },
+      }),
+      response
+    );
+
+    expect(response.status).toHaveBeenCalledWith(403);
+    expect(response.send).toHaveBeenCalledWith({
+      success: false,
+      content: "Profile userId does not match authenticated user.",
+    });
+
+    const persistedCount = await client
+      .db("users")
+      .collection("user")
+      .countDocuments({});
+
+    expect(persistedCount).toBe(0);
   });
 
   it("edits an authenticated profile without clearing quiz history", async () => {
@@ -647,6 +720,54 @@ describe("backend topic, profile, auth, and quiz flows", () => {
       preferences: "deep dives",
       topicsToAvoid: "CSS",
       answeredQuizzes: [{ id: "quiz-1", correctness: true }],
+    });
+  });
+
+  it("rejects profile edits when body userId differs from the token subject", async () => {
+    const userId = "profile-user";
+
+    await client.db("users").collection("user").insertOne({
+      userId,
+      csLevel: "beginner",
+      goals: "learn TypeScript",
+      preferences: "short examples",
+      topicsToAvoid: "assembly",
+    });
+
+    mockDecodedTokenSubject(userId);
+
+    const response = createResponse();
+
+    await userController.editProfile(
+      createRequest({
+        authorization: "Bearer valid-token",
+        body: {
+          userId: "different-user",
+          csLevel: "advanced",
+          goals: "design distributed systems",
+          preferences: "deep dives",
+          topicsToAvoid: "CSS",
+        },
+      }),
+      response
+    );
+
+    expect(response.status).toHaveBeenCalledWith(403);
+    expect(response.send).toHaveBeenCalledWith({
+      success: false,
+      content: "Profile userId does not match authenticated user.",
+    });
+
+    const persistedUser = await client.db("users").collection("user").findOne({
+      userId,
+    });
+
+    expect(persistedUser).toMatchObject({
+      userId,
+      csLevel: "beginner",
+      goals: "learn TypeScript",
+      preferences: "short examples",
+      topicsToAvoid: "assembly",
     });
   });
 

@@ -4,7 +4,7 @@ import {
   TopicGenerationLockScope,
 } from "../types/TopicGenerationLock";
 import { client } from "./dbConnect";
-import { isDuplicateKeyError } from "./topicRepository";
+import { isDuplicateKeyError } from "./mongoErrors";
 
 const DEFAULT_LOCK_TTL_MS = 2 * 60 * 1000;
 

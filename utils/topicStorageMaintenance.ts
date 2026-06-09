@@ -3,6 +3,7 @@ import { client } from "./dbConnect";
 import { getUtcDayKey } from "./topicDayKey";
 
 interface DuplicateReport {
+  topicIds: Document[];
   publicTopics: Document[];
   userTopics: Document[];
 }
@@ -38,6 +39,29 @@ const backfillTopicDayKeys = async () => {
 
 const findDuplicateTopics = async (): Promise<DuplicateReport> => {
   const topics = getTopicsCollection();
+
+  const topicIds = await topics
+    .aggregate([
+      {
+        $match: {
+          id: { $exists: true },
+        },
+      },
+      {
+        $group: {
+          _id: "$id",
+          count: { $sum: 1 },
+          dayKeys: { $push: "$dayKey" },
+          concepts: { $push: "$concept" },
+        },
+      },
+      {
+        $match: {
+          count: { $gt: 1 },
+        },
+      },
+    ])
+    .toArray();
 
   const publicTopics = await topics
     .aggregate([
@@ -92,6 +116,7 @@ const findDuplicateTopics = async (): Promise<DuplicateReport> => {
     .toArray();
 
   return {
+    topicIds,
     publicTopics,
     userTopics,
   };
@@ -100,12 +125,16 @@ const findDuplicateTopics = async (): Promise<DuplicateReport> => {
 const throwIfDuplicateTopicsExist = async () => {
   const duplicates = await findDuplicateTopics();
 
-  if (duplicates.publicTopics.length === 0 && duplicates.userTopics.length === 0) {
+  if (
+    duplicates.topicIds.length === 0 &&
+    duplicates.publicTopics.length === 0 &&
+    duplicates.userTopics.length === 0
+  ) {
     return;
   }
 
   throw new Error(
-    `Cannot create unique topic indexes while duplicate daily topics exist: ${JSON.stringify(
+    `Cannot create unique topic indexes while duplicate topics exist: ${JSON.stringify(
       duplicates
     )}`
   );
@@ -113,6 +142,17 @@ const throwIfDuplicateTopicsExist = async () => {
 
 const ensureTopicIndexes = async () => {
   const topics = getTopicsCollection();
+
+  await topics.createIndex(
+    { id: 1 },
+    {
+      name: "uniq_topic_id",
+      unique: true,
+      partialFilterExpression: {
+        id: { $exists: true },
+      },
+    }
+  );
 
   await topics.createIndex(
     { dayKey: 1 },
