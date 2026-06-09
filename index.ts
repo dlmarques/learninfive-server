@@ -9,7 +9,8 @@ import { runDB } from "./utils/dbConnect";
 import cors from "cors";
 import { limiter } from "./utils/limiter";
 import helmet from "helmet";
-
+import { ensureTopicStorage } from "./utils/topicStorageMaintenance";
+import { ensureUserStorage } from "./utils/userStorageMaintenance";
 
 dotenv.config();
 
@@ -20,8 +21,10 @@ app.use(
   cors({
     origin: [
       "http://localhost:3000",
+      "https://learninfive.dev",
+      "https://www.learninfive.dev",
       "https://learninfive.com",
-      "https://www.learninfive.com",
+      "https://www.learninfive.com"
     ],
     credentials: true,
   })
@@ -77,8 +80,17 @@ app.use(limiter);
 app.use("/topics", topicRoutes);
 app.use("/users", usersRoutes);
 
-runDB().catch(console.dir);
+const startServer = async () => {
+  await runDB();
+  await ensureTopicStorage();
+  await ensureUserStorage();
 
-app.listen(port, () => {
-  console.log(`Server is Fire at https://localhost:${port}`);
+  app.listen(port, () => {
+    console.log(`Server is listening at http://localhost:${port}`);
+  });
+};
+
+startServer().catch((error) => {
+  console.error(error);
+  process.exit(1);
 });

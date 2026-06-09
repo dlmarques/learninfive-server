@@ -5,13 +5,8 @@ import {
 } from "./model.controller";
 import schedule from "node-schedule";
 import { getPreviousPublicTopics } from "../utils/getPreviousTopics";
-import {
-  insertNewUserTopic,
-  insertNewPublicTopic,
-} from "../utils/insertNewTopic";
 import { client } from "../utils/dbConnect";
 import { Topic } from "../types/Topic";
-import { isToday } from "../utils/isToday";
 import { extractTokenFromHeaders } from "../utils/extractTokenFromHeaders";
 import { decode } from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
@@ -20,48 +15,59 @@ import { extractPastTopics } from "../utils/extractPastTopics";
 import { UserDataToModel } from "../types/Model";
 import { insertTopicToUserPastTopics } from "../utils/insertTopicToUserPastTopics";
 import { insertAnswerToUser } from "../utils/insertAnswerToUser";
+import { getUtcDayKey } from "../utils/topicDayKey";
+import {
+  findPublicTopicByDayKey,
+  findUserTopicByDayKey,
+  insertTopicOrReturnExisting,
+} from "../utils/topicRepository";
+import {
+  TopicGenerationInProgressError,
+  withTopicGenerationLock,
+} from "../utils/topicGenerationLock";
+import { parseModelTopicResponse } from "../utils/parseModelTopicResponse";
 
-const inProgress = new Set();
-let publicTopicInProgress: Topic | null;
-let usersTopicsInProgress: { [key: string]: Topic } = {};
+const TOPIC_IN_PROGRESS = "Topic in progress";
 
-export const requestAndSaveNewPublicTopic = async () => {
+const createPublicTopic = async (dayKey: string) => {
   const pastTopics = await getPreviousPublicTopics();
 
   const modelResponse = await getPublicModelResponse(pastTopics);
 
   if (modelResponse) {
-    const parsedResponse = JSON.parse(modelResponse);
+    const parsedResponse = parseModelTopicResponse(modelResponse);
 
     const topic: Topic = {
       ...parsedResponse,
+      quiz: {
+        ...parsedResponse.quiz,
+        id: uuidv4(),
+      },
       date: new Date(),
+      dayKey,
       public: true,
       id: uuidv4(),
     };
 
-    publicTopicInProgress = topic;
+    const result = await insertTopicOrReturnExisting(topic, () =>
+      findPublicTopicByDayKey(dayKey)
+    );
 
-    const insertPublicTopicResult = await insertNewPublicTopic(topic);
-
-    if (insertPublicTopicResult) {
-      return topic;
-    } else {
-      throw new Error("Something went wrong on model requisition");
-    }
+    return result.topic;
   } else {
     throw new Error("Something went wrong on model requisition");
   }
 };
 
-export const requestAndSaveNewUserTopic = async (
+const createUserTopic = async (
   userDataToModel: UserDataToModel,
-  userId: string
+  userId: string,
+  dayKey: string
 ) => {
   const modelResponse = await getUserModelResponse(userDataToModel);
 
   if (modelResponse) {
-    const parsedResponse = JSON.parse(modelResponse);
+    const parsedResponse = parseModelTopicResponse(modelResponse);
 
     const topic: Topic = {
       ...parsedResponse,
@@ -70,136 +76,191 @@ export const requestAndSaveNewUserTopic = async (
         ...parsedResponse.quiz,
       },
       date: new Date(),
+      dayKey,
       userId,
       id: uuidv4(),
       public: false,
     };
 
-    usersTopicsInProgress[userId] = topic;
-
-    const insertUserTopicResult = await insertNewUserTopic(topic);
+    const result = await insertTopicOrReturnExisting(topic, () =>
+      findUserTopicByDayKey(userId, dayKey)
+    );
 
     const insertTopicToUserPastTopicsResult = await insertTopicToUserPastTopics(
-      topic,
+      result.topic,
       userId
     );
 
-    if (insertUserTopicResult && insertTopicToUserPastTopicsResult) {
-      return topic;
-    } else {
+    if (!insertTopicToUserPastTopicsResult) {
       throw new Error("Something went wrong on model requisition");
     }
+
+    return result.topic;
   } else {
     throw new Error("Something went wrong on model requisition");
   }
 };
 
-schedule.scheduleJob("0 0 * * *", requestAndSaveNewPublicTopic);
+export const getOrCreatePublicTopicForDay = async (
+  dayKey = getUtcDayKey()
+) => {
+  const existingTopic = await findPublicTopicByDayKey(dayKey);
+
+  if (existingTopic) {
+    return existingTopic;
+  }
+
+  return withTopicGenerationLock(
+    {
+      scope: "public",
+      dayKey,
+    },
+    async () => {
+      const existingTopicAfterLock = await findPublicTopicByDayKey(dayKey);
+
+      if (existingTopicAfterLock) {
+        return existingTopicAfterLock;
+      }
+
+      return createPublicTopic(dayKey);
+    }
+  );
+};
+
+export const getOrCreateUserTopicForDay = async (
+  userDataToModel: UserDataToModel,
+  userId: string,
+  dayKey = getUtcDayKey()
+) => {
+  const existingTopic = await findUserTopicByDayKey(userId, dayKey);
+
+  if (existingTopic) {
+    return existingTopic;
+  }
+
+  return withTopicGenerationLock(
+    {
+      scope: "user",
+      userId,
+      dayKey,
+    },
+    async () => {
+      const existingTopicAfterLock = await findUserTopicByDayKey(
+        userId,
+        dayKey
+      );
+
+      if (existingTopicAfterLock) {
+        return existingTopicAfterLock;
+      }
+
+      return createUserTopic(userDataToModel, userId, dayKey);
+    }
+  );
+};
+
+export const requestAndSaveNewPublicTopic = async () => {
+  return getOrCreatePublicTopicForDay();
+};
+
+export const requestAndSaveNewUserTopic = async (
+  userDataToModel: UserDataToModel,
+  userId: string
+) => {
+  return getOrCreateUserTopicForDay(userDataToModel, userId);
+};
+
+if (process.env.NODE_ENV !== "test") {
+  schedule.scheduleJob("0 0 * * *", () => {
+    requestAndSaveNewPublicTopic().catch((error) => {
+      console.error(error);
+    });
+  });
+}
 
 export const getTopic = async (req: Request, res: Response) => {
   const token = extractTokenFromHeaders(req);
 
-  if (token) {
-    getUserTopic(token, res);
-  } else {
-    getPublicTopic(res);
+  try {
+    if (token) {
+      await getUserTopic(token, res);
+    } else {
+      await getPublicTopic(res);
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ success: false, content: "Something went wrong" });
   }
 };
 
 const getPublicTopic = async (res: Response) => {
-  if (inProgress.has("public") && publicTopicInProgress) {
-    res.status(200).send({ success: true, content: publicTopicInProgress });
-    inProgress.delete("public");
-    publicTopicInProgress = null;
-    return;
-  } else if (inProgress.has("public")) {
-    res.status(500).send({ success: false, content: "Topic in progress" });
-    return;
-  }
-  const database = client.db("topics");
+  try {
+    const topic = await getOrCreatePublicTopicForDay();
 
-  const topic = database.collection<Topic>("topic");
-
-  const result = await topic.find({ public: true }).toArray();
-
-  const lastTopic = result.find((topic) => {
-    if (isToday(topic.date)) return topic;
-  });
-
-  if (lastTopic) {
-    res.status(200).send({ success: true, content: lastTopic });
-  } else {
-    if (!inProgress.has("public")) {
-      inProgress.add("public");
-      const topic = await requestAndSaveNewPublicTopic();
-      res.status(200).send({ success: true, content: topic });
-      inProgress.delete("public");
-      publicTopicInProgress = null;
+    res.status(200).send({ success: true, content: topic });
+  } catch (error) {
+    if (error instanceof TopicGenerationInProgressError) {
+      res.status(500).send({ success: false, content: TOPIC_IN_PROGRESS });
+      return;
     }
+
+    throw error;
   }
 };
 
 const getUserTopic = async (token: string, res: Response) => {
   const userId = decode(token)?.sub as string;
 
-  if (inProgress.has(userId) && usersTopicsInProgress[userId]) {
-    res
-      .status(200)
-      .send({ success: true, content: usersTopicsInProgress[userId] });
-    inProgress.delete(userId);
-    delete usersTopicsInProgress[userId];
-    return;
-  } else if (inProgress.has(userId)) {
-    res.status(500).send({ success: false, content: "Topic in progress" });
-    return;
-  }
-
-  const database = client.db("topics");
-
-  const topic = database.collection<Topic>("topic");
-
-  const result = await topic.find({ userId }).toArray();
+  const dayKey = getUtcDayKey();
+  const existingTopic = await findUserTopicByDayKey(userId, dayKey);
 
   const userData = await getUserDataById(userId);
 
-  const lastTopic = result.find((topic) => {
-    if (isToday(topic.date)) return topic;
-  });
+  if (existingTopic) {
+    const answeredQuiz = userData?.answeredQuizzes?.find((quiz) => {
+      if (quiz.id === existingTopic.quiz.id) return quiz;
+    });
 
-  const answeredQuiz = userData?.answeredQuizzes?.find((quiz) => {
-    if (quiz.id === lastTopic?.quiz.id) return quiz;
-  });
-
-  if (lastTopic) {
     if (answeredQuiz) {
-      const topic: Topic = {
-        ...lastTopic,
-        quiz: { ...lastTopic.quiz, userAnswer: answeredQuiz.correctness },
+      const topicWithAnswer: Topic = {
+        ...existingTopic,
+        quiz: { ...existingTopic.quiz, userAnswer: answeredQuiz.correctness },
       };
-      res.status(200).send({ success: true, content: topic });
+
+      res.status(200).send({ success: true, content: topicWithAnswer });
     } else {
-      res.status(200).send({ success: true, content: lastTopic });
+      res.status(200).send({ success: true, content: existingTopic });
     }
-  } else {
-    if (!inProgress.has(userId)) {
-      if (userData) {
-        inProgress.add(userId);
-        const pastTopics = extractPastTopics(userData);
-        const topic = await requestAndSaveNewUserTopic(
-          {
-            pastTopics,
-            csLevel: userData.csLevel,
-            preferences: userData.preferences,
-            topicsToAvoid: userData.topicsToAvoid,
-            goals: userData.goals,
-          },
-          userId
-        );
-        res.status(200).send({ success: true, content: topic });
-        inProgress.delete(userId);
-        delete usersTopicsInProgress[userId];
-      }
+
+    return;
+  }
+
+  if (!userData) {
+    res.status(404).send({ success: false, content: "User not found" });
+    return;
+  }
+
+  try {
+    const topic = await getOrCreateUserTopicForDay(
+      {
+        pastTopics: extractPastTopics(userData),
+        csLevel: userData.csLevel,
+        preferences: userData.preferences,
+        topicsToAvoid: userData.topicsToAvoid,
+        goals: userData.goals,
+      },
+      userId,
+      dayKey
+    );
+
+    res.status(200).send({ success: true, content: topic });
+  } catch (error) {
+    if (error instanceof TopicGenerationInProgressError) {
+      res.status(500).send({ success: false, content: TOPIC_IN_PROGRESS });
+      return;
     }
+
+    throw error;
   }
 };
 
